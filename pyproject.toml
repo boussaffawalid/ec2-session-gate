@@ -1,0 +1,11 @@
+[project]
+name = "ec2-Session-gate"
+version = "1.0.0"
+description = "Cross-platform AWS SSM tunnel/connection manager"
+requires-python = ">=3.9"
+dependencies = [
+    "Flask>=2.3",
+    "boto3>=1.34",
+    "botocore>=1.34",
+    "PyYAML>=6.0"
+]
