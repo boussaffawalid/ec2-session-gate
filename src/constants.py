@@ -1,0 +1,44 @@
+"""
+Constants used throughout the application.
+"""
+# Default ports
+DEFAULT_SSH_PORT = 22
+DEFAULT_RDP_PORT = 3389
+
+# Timeout values (in seconds)
+AWS_CONNECT_TIMEOUT = 10
+AWS_READ_TIMEOUT = 30
+AWS_IAM_TIMEOUT = 5
+AWS_IAM_READ_TIMEOUT = 10
+PROCESS_TERMINATION_TIMEOUT = 5
+PROCESS_STARTUP_CHECK_DELAY = 0.1  # seconds
+
+# Retry settings
+AWS_MAX_RETRIES = 3
+AWS_IAM_MAX_RETRIES = 2
+PORT_CHECK_RETRIES = 3
+PORT_RANGE_MAX_ATTEMPTS = 3
+
+# Port ranges
+MIN_PORT = 1
+MAX_PORT = 65535
+SYSTEM_PORT_MAX = 1023
+
+# String limits
+MAX_INSTANCE_NAME_LENGTH = 255
+MAX_CONNECTION_ID_LENGTH = 36  # UUID length
+MAX_FILTER_QUERY_LENGTH = 100
+
+# Logging levels
+VALID_LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+# Connection monitoring
+CONNECTION_CHECK_INTERVAL = 2000  # milliseconds
+DEBOUNCE_DELAY = 300  # milliseconds
+
+# File permissions
+LOG_DIR_PERMISSIONS = 0o700  # rwx------
+LOG_FILE_PERMISSIONS = 0o600  # rw-------
+PREF_DIR_PERMISSIONS = 0o700  # rwx------
+PREF_FILE_PERMISSIONS = 0o600  # rw-------
+

@@ -1,0 +1,19 @@
+version: 1
+formatters:
+  default:
+    format: "%(asctime)s %(levelname)s [%(name)s] %(message)s"
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: default
+    level: INFO
+  file:
+    class: logging.handlers.RotatingFileHandler
+    formatter: default
+    level: INFO
+    filename: ec2-session-gate.log
+    maxBytes: 1048576
+    backupCount: 3
+root:
+  handlers: [console, file]
+  level: INFO

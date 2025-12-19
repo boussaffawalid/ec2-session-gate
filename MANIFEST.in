@@ -1,0 +1,13 @@
+include README.md
+include LICENSE
+include requirements.txt
+include pyproject.toml
+include run.py
+recursive-include src/static *
+recursive-include src/static/templates *
+include src/defaults.json
+include src/logging.yaml
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude * .DS_Store
+
