@@ -776,36 +776,80 @@ class AWSManager:
             }
 
     def _launch_rdp_windows(self, ip: str, port: int, username: str, password: Optional[str] = None) -> Dict[str, Any]:
-        """Launch RDP client on Windows using mstsc.exe"""
+        """Launch RDP client on Windows using mstsc.exe with an RDP file"""
+        rdp_file_path = None
         try:
-            # Note: mstsc.exe doesn't support password via command line for security reasons
-            # We'll launch with username and let user enter password, or use RDP file
-            # For simplicity, we'll use command line with username
-            cmd = ["mstsc.exe", f"/v:{ip}:{port}"]
+            # Create a temporary RDP file (more reliable than command-line args)
+            rdp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.rdp', delete=False)
+            rdp_file_path = rdp_file.name
             
-            # Add username if provided (mstsc will prompt for password)
-            # Note: /u parameter exists but password must be entered manually for security
-            if username:
-                cmd.extend(["/u", username])
-            
-            # Windows-specific creation flags
-            kwargs = {}
-            if os.name == "nt":
-                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-            
-            subprocess.Popen(cmd, **kwargs)
-            
-            message = f"RDP client launched connecting to {ip}:{port}"
-            if password:
-                message += " (password will need to be entered in RDP client)"
-            else:
-                message += " (enter credentials when prompted)"
-            
-            return {
-                "success": True,
-                "message": message
-            }
+            try:
+                # Write RDP file content - only essential settings
+                # MSTSC will use defaults for everything else
+                rdp_file.write(f"full address:s:{ip}:{port}\n")
+                rdp_file.write(f"username:s:{username}\n")
+                
+                # Note: Password cannot be stored in plain text in RDP file for security
+                # User will need to enter password when prompted
+                
+                rdp_file.close()
+                
+                # Use full path to mstsc.exe
+                system32_path = os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32", "mstsc.exe")
+                
+                if not os.path.exists(system32_path):
+                    # Fallback to just mstsc.exe (should be in PATH)
+                    mstsc_exe = "mstsc.exe"
+                else:
+                    mstsc_exe = system32_path
+                
+                # Launch MSTSC with the RDP file
+                # Using os.startfile is more reliable on Windows than subprocess
+                try:
+                    os.startfile(rdp_file_path)
+                except AttributeError:
+                    # Fallback to subprocess if os.startfile not available
+                    subprocess.Popen([mstsc_exe, rdp_file_path])
+                
+                # Schedule cleanup after a delay (10 seconds should be enough for MSTSC to read it)
+                def cleanup_rdp_file():
+                    time.sleep(10)
+                    try:
+                        if rdp_file_path and os.path.exists(rdp_file_path):
+                            os.unlink(rdp_file_path)
+                            logger.debug(f"Cleaned up temporary RDP file: {rdp_file_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to cleanup RDP file {rdp_file_path}: {e}")
+                
+                # Run cleanup in background thread
+                cleanup_thread = threading.Thread(target=cleanup_rdp_file, daemon=True)
+                cleanup_thread.start()
+                
+                message = f"RDP client launched connecting to {ip}:{port}"
+                if username:
+                    message += f" as {username}"
+                message += " (enter password when prompted)"
+                
+                return {
+                    "success": True,
+                    "message": message,
+                    "rdp_file": rdp_file_path
+                }
+            except Exception as e:
+                # Clean up temp file on error
+                try:
+                    if rdp_file_path and os.path.exists(rdp_file_path):
+                        os.unlink(rdp_file_path)
+                except Exception:
+                    pass
+                raise
         except Exception as e:
+            # Ensure cleanup on outer exception
+            try:
+                if rdp_file_path and os.path.exists(rdp_file_path):
+                    os.unlink(rdp_file_path)
+            except Exception:
+                pass
             raise RuntimeError(f"Failed to launch Windows RDP client: {e}")
 
     def _launch_rdp_macos(self, ip: str, port: int, username: str, password: Optional[str] = None) -> Dict[str, Any]:
