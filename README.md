@@ -82,6 +82,11 @@ sudo ./aws/install
 ```
 
 **Windows:**
+**Windows:**
+```bash
+choco install awscli
+```
+
 Download and run the installer from [AWS CLI Downloads](https://aws.amazon.com/cli/)
 </details>
 
@@ -100,6 +105,10 @@ sudo yum install -y session-manager-plugin.rpm
 ```
 
 **Windows:**
+```bash
+choco install awscli-session-manager
+```
+
 Download and run the installer from [Session Manager Plugin Downloads](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
 </details>
 
