@@ -22,7 +22,8 @@ const app = {
         startPort: null,  // Will be loaded from backend (OS-specific defaults)
         endPort: null,    // Will be loaded from backend (OS-specific defaults)
         logLevel: 'INFO',
-        ssh_key_folder: null
+        ssh_key_folder: null,
+        ssh_options: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
     },
     // Initialize application
     async init() {
@@ -1537,6 +1538,12 @@ async load_profiles_and_regions() {
             document.getElementById('endPort').value = prefs.port_range.end;
             document.getElementById('logLevel').value = prefs.logging.level;
             
+            // Load SSH options
+            const sshOptionsField = document.getElementById('sshOptions');
+            if (sshOptionsField) {
+                sshOptionsField.value = prefs.ssh_options || '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null';
+            }
+            
             // Load SSH key folders
             this.load_ssh_key_folders(prefs.ssh_key_folder || '');
             
@@ -1569,6 +1576,7 @@ async load_profiles_and_regions() {
             const startPort = parseInt(document.getElementById('startPort').value);
             const endPort = parseInt(document.getElementById('endPort').value);
             const logLevel = document.getElementById('logLevel').value;
+            const sshOptions = document.getElementById('sshOptions').value.trim() || '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null';
             
             // Get SSH key folders (one per line)
             const sshKeyFolders = this.get_ssh_key_folders();
@@ -1598,7 +1606,8 @@ const newPreferences = {
                 logging: {
                     level: logLevel,
                     format: "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
-                }
+                },
+                ssh_options: sshOptions
             };
             
             // Add SSH key folder if provided (newline-separated)
@@ -1614,8 +1623,14 @@ const newPreferences = {
             
             if (!response.ok) throw new Error('Failed to save preferences');
             
-            // Update local preferences
-            this.preferences = newPreferences;
+            // Update local preferences (preserve structure)
+            this.preferences.startPort = newPreferences.port_range.start;
+            this.preferences.endPort = newPreferences.port_range.end;
+            this.preferences.logLevel = newPreferences.logging.level;
+            this.preferences.ssh_options = newPreferences.ssh_options;
+            if (sshKeyFolder) {
+                this.preferences.ssh_key_folder = sshKeyFolder;
+            }
             
             // Hide modal and show success message
             if (this.modals.preferences) {
@@ -1640,23 +1655,28 @@ const newPreferences = {
             const response = await fetch('/api/preferences');
             if (!response.ok) throw new Error('Failed to load preferences');
             
-            this.preferences = await response.json();
+            const prefs = await response.json();
+            // Map backend structure to frontend preferences object
+            this.preferences.startPort = prefs.port_range?.start || null;
+            this.preferences.endPort = prefs.port_range?.end || null;
+            this.preferences.logLevel = prefs.logging?.level || 'INFO';
+            this.preferences.ssh_options = prefs.ssh_options || '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null';
+            this.preferences.ssh_key_folder = prefs.ssh_key_folder || null;
+            
+            // Also store full structure for compatibility
+            this.preferences.port_range = prefs.port_range;
+            this.preferences.logging = prefs.logging;
+            
             console.log('Loaded preferences:', this.preferences);
             
         } catch (error) {
             console.error('Error loading initial preferences:', error);
             // Use safe default values if loading fails (will be overridden by backend on next load)
             // These are generic safe ranges that work across platforms
-            this.preferences = {
-                port_range: {
-                    start: 40000,  // Safe fallback (below Windows ephemeral range)
-                    end: 40100
-                },
-                logging: {
-                    level: 'INFO',
-                    format: "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
-                }
-            };
+            this.preferences.startPort = 40000;
+            this.preferences.endPort = 40100;
+            this.preferences.logLevel = 'INFO';
+            this.preferences.ssh_options = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null';
         }
     };
 
@@ -1871,14 +1891,15 @@ const newPreferences = {
                 // For SSH connections, add SSH command with key path
                 if (info.type === 'ssh') {
                     let sshCommand = '';
-                    const sshOptions = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null';
+                    // Use SSH options from preferences (backend should already include them, but fallback to preferences)
+                    const sshOptions = this.preferences.ssh_options || '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null';
                     if (info.ssh_command_with_key) {
                         sshCommand = info.ssh_command_with_key;
                     } else if (info.command) {
                         // Fallback: construct command from available info
-                        // Ensure SSH options are included
+                        // Backend should already include SSH options, but ensure they're present
                         sshCommand = info.command;
-                        if (!sshCommand.includes('StrictHostKeyChecking')) {
+                        if (!sshCommand.includes('StrictHostKeyChecking') && !sshCommand.includes('-o')) {
                             // Add SSH options if not already present
                             sshCommand = sshCommand.replace(/^ssh /, `ssh ${sshOptions} `);
                         }

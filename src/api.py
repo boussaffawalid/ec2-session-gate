@@ -271,7 +271,7 @@ def set_preferences():
         # Reload preferences in aws_manager to use updated values
         aws_manager.preferences = Preferences.load()
         
-        logger.info(f"Saved preferences: port_range={p.port_range_start}-{p.port_range_end}, logging_level={p.logging_level}")
+        logger.info(f"Saved preferences: port_range={p.port_range_start}-{p.port_range_end}, logging_level={p.logging_level}, ssh_options={p.ssh_options}")
         return create_success_response(p.to_dict())
     except ValueError as e:
         logger.error(f"Invalid preferences data: {e}", exc_info=True)

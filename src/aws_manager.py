@@ -477,8 +477,8 @@ class AWSManager:
         if connection_type == "ssh":
             # For SSH, provide connection command
             # Default username varies by OS, but common ones are ec2-user, ubuntu, admin
-            # Include options to skip host key checking
-            ssh_options = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+            # Get SSH options from preferences
+            ssh_options = getattr(self.preferences, "ssh_options", "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null")
             info = {
                 "type": "ssh",
                 "instruction": f"Connect via SSH to localhost:{local_port}",

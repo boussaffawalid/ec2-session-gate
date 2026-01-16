@@ -456,6 +456,17 @@
                             </select>
                             <div id="logLevelHelp" class="form-text">Set the application logging verbosity</div>
                         </div>
+                        <!-- SSH Options Settings -->
+                        <div class="mb-3">
+                            <h6>SSH Options</h6>
+                            <label for="sshOptions" class="form-label">Default SSH Command Options</label>
+                            <input type="text" 
+                                   class="form-control" 
+                                   id="sshOptions" 
+                                   placeholder="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+                                   aria-describedby="sshOptionsHelp">
+                            <div id="sshOptionsHelp" class="form-text mt-2">SSH options to include in all SSH commands. Example: <code>-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null</code></div>
+                        </div>
                         <!-- SSH Key Folder Settings -->
                         <div class="mb-3">
                             <h6>SSH Key Folders</h6>

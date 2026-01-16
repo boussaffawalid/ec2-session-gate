@@ -39,7 +39,8 @@ DEFAULTS = {
     "port_range": _get_default_port_range(),
     "logging": {"level": "INFO", "format": "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"},
     "aws": {"profile": None, "region": None},
-    "ssh_key_folder": None
+    "ssh_key_folder": None,
+    "ssh_options": "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 }
 
 @dataclass
@@ -51,6 +52,7 @@ class Preferences:
     last_profile: Optional[str] = None
     last_region: Optional[str] = None
     ssh_key_folder: Optional[str] = None
+    ssh_options: str = DEFAULTS["ssh_options"]
 
     @classmethod
     def load(cls):
@@ -100,6 +102,7 @@ class Preferences:
             last_profile=aws.get("profile") or None,
             last_region=aws.get("region") or None,
             ssh_key_folder=data.get("ssh_key_folder") or None,
+            ssh_options=str(data.get("ssh_options", DEFAULTS["ssh_options"])),
         )
 
     def to_dict(self):
@@ -118,6 +121,8 @@ class Preferences:
         # Include SSH key folder if set
         if self.ssh_key_folder:
             result["ssh_key_folder"] = self.ssh_key_folder
+        # Include SSH options (always include, has default value)
+        result["ssh_options"] = self.ssh_options
         return result
 
     def save(self):
