@@ -434,16 +434,37 @@ class AWSManager:
         
         return folders
 
+    def _normalize_path_for_ssh(self, path: str) -> str:
+        """
+        Normalize a file path for use in SSH commands.
+        Converts Windows backslashes to forward slashes and ensures proper formatting.
+        
+        Args:
+            path: File path (can be Windows or Unix style)
+            
+        Returns:
+            Normalized path with forward slashes
+        """
+        from pathlib import Path
+        # Use pathlib for proper cross-platform path handling
+        # Expand user (~) and resolve to absolute path
+        path_obj = Path(path).expanduser().resolve()
+        # Convert to string and replace backslashes with forward slashes
+        # SSH on Windows supports forward slashes
+        normalized = str(path_obj).replace('\\', '/')
+        return normalized
+    
     def _construct_ssh_key_path(self, key_name: str) -> Optional[str]:
         """
         Construct SSH key path based on preferences and key name.
         Searches through multiple directories if configured.
+        Returns normalized path with forward slashes for cross-platform compatibility.
         
         Args:
             key_name: Name of the SSH key
             
         Returns:
-            Constructed key path or None if key_name is invalid
+            Normalized key path (with forward slashes) or None if key_name is invalid
         """
         if not key_name or key_name == "N/A":
             return None
@@ -459,18 +480,20 @@ class AWSManager:
             
             # Check if either path exists, prefer the one without extension if both exist
             if os.path.exists(key_path_without_ext) and os.path.isfile(key_path_without_ext):
-                return key_path_without_ext
+                return self._normalize_path_for_ssh(key_path_without_ext)
             elif os.path.exists(key_path_with_ext) and os.path.isfile(key_path_with_ext):
-                return key_path_with_ext
+                return self._normalize_path_for_ssh(key_path_with_ext)
         
         # If not found in any folder, return the first folder + key_name as default
         # (user can adjust if needed)
         if ssh_key_folders:
-            return os.path.join(ssh_key_folders[0], key_name)
+            default_path = os.path.join(ssh_key_folders[0], key_name)
+            return self._normalize_path_for_ssh(default_path)
         
         # Fallback to ~/.ssh
         ssh_dir = os.path.expanduser("~/.ssh")
-        return os.path.join(ssh_dir, key_name)
+        fallback_path = os.path.join(ssh_dir, key_name)
+        return self._normalize_path_for_ssh(fallback_path)
 
     def _generate_connection_info(self, connection_type: str, local_port: int, remote_port: int, instance_id: Optional[str] = None, key_name: Optional[str] = None, remote_host: Optional[str] = None) -> Dict[str, str]:
         """Generate connection instructions based on connection type."""
@@ -494,8 +517,11 @@ class AWSManager:
                 # Construct SSH key path
                 key_path = self._construct_ssh_key_path(key_name)
                 if key_path:
+                    # Quote the key path to handle spaces and special characters
+                    # Use double quotes for Windows compatibility
+                    quoted_key_path = f'"{key_path}"'
                     # Update command with -i flag and SSH options
-                    info["command"] = f"ssh {ssh_options} -i {key_path} -p {local_port} ec2-user@127.0.0.1"
+                    info["command"] = f"ssh {ssh_options} -i {quoted_key_path} -p {local_port} ec2-user@127.0.0.1"
                     # Add full command with key path
                     info["ssh_command_with_key"] = info["command"]
                 else:

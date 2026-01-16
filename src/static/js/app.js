@@ -1906,13 +1906,24 @@ const newPreferences = {
                         if (info.key_name && info.key_name !== 'N/A') {
                             // Try to construct command with key path
                             // This is a fallback - ideally backend should provide ssh_command_with_key
-                            // Use first folder if multiple are configured (comma-separated)
+                            // Use first folder if multiple are configured (newline or comma-separated)
                             const sshKeyFolders = this.preferences.ssh_key_folder;
-                            const firstFolder = sshKeyFolders ? sshKeyFolders.split(',')[0].trim() : null;
-                            const keyPath = firstFolder 
+                            let firstFolder = null;
+                            if (sshKeyFolders) {
+                                const folders = sshKeyFolders.split('\n').flatMap(f => f.split(','));
+                                firstFolder = folders.find(f => f.trim())?.trim();
+                            }
+                            
+                            let keyPath = firstFolder 
                                 ? `${firstFolder}/${info.key_name}`
                                 : `~/.ssh/${info.key_name}`;
-                            sshCommand = `ssh ${sshOptions} -i ${keyPath} -p ${info.port} ${info.user}@${info.ip}`;
+                            
+                            // Normalize path: convert backslashes to forward slashes (SSH on Windows supports forward slashes)
+                            keyPath = keyPath.replace(/\\/g, '/');
+                            
+                            // Quote the key path to handle spaces and special characters
+                            const quotedKeyPath = `"${keyPath}"`;
+                            sshCommand = `ssh ${sshOptions} -i ${quotedKeyPath} -p ${info.port} ${info.user}@${info.ip}`;
                         }
                     }
                     
