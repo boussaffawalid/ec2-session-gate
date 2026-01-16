@@ -574,14 +574,10 @@ class AWSManager:
                 logger.info(f"Preferred local port {preferred_local_port} not available, using port from range for {connection_type} connection")
                 local_port = _in_range_free_port(start, end)
         elif connection_type in ("ssh", "rdp", "custom_port"):
-            # For SSH, RDP, and custom ports, try to use the same local port as remote port first
-            # If not available, fall back to port range
-            if _is_port_free(remote_port):
-                local_port = remote_port
-                logger.info(f"Using same port as remote ({remote_port}) for {connection_type} connection")
-            else:
-                logger.info(f"Port {remote_port} not available, using port from range for {connection_type} connection")
-                local_port = _in_range_free_port(start, end)
+            # For SSH, RDP, and custom ports, always use a safe port from the configured range
+            # This avoids conflicts with system ports and ensures consistent behavior
+            local_port = _in_range_free_port(start, end)
+            logger.info(f"Using safe local port {local_port} from range for {connection_type} connection (remote port: {remote_port})")
         else:
             # For other port forwarding types, use port range
             local_port = _in_range_free_port(start, end)
