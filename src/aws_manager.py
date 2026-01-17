@@ -128,6 +128,10 @@ class AWSManager:
         self._connections: Dict[str, Connection] = {}
         # Thread lock for thread-safe access to connections dictionary
         self._connections_lock = threading.Lock()
+        # Instance cache: (profile, region) -> (instances_list, timestamp)
+        self._instance_cache: Dict[tuple, tuple] = {}
+        self._instance_cache_lock = threading.Lock()
+        self._instance_cache_ttl = 300  # 5 minutes
         # Cleanup any orphaned processes on startup
         self._cleanup_orphaned_processes()
     
@@ -217,7 +221,20 @@ class AWSManager:
             ClientError: If AWS credentials are invalid or connection fails
             RuntimeError: If connection timeout occurs
         """
+        # Invalidate cache if profile or region changed
+        old_key = (self._profile or "default", self._region)
         self._profile, self._region = profile, region
+        new_key = (self._profile or "default", self._region)
+        
+        if old_key != new_key:
+            with self._instance_cache_lock:
+                # Clear cache for old key if it exists
+                if old_key in self._instance_cache:
+                    del self._instance_cache[old_key]
+                # Also clear new key to force fresh fetch
+                if new_key in self._instance_cache:
+                    del self._instance_cache[new_key]
+                logger.debug(f"Cache invalidated due to profile/region change: {old_key} -> {new_key}")
         
         # Configure with timeout and retries
         config = Config(
@@ -262,9 +279,14 @@ class AWSManager:
 
     # ------------- EC2 + SSM -------------
 
-    def list_instances(self) -> List[Dict[str, Any]]:
+    def list_instances(self, filter_state: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         List all EC2 instances in the current region.
+        Uses parallel API calls (EC2 and SSM) and caching for better performance.
+        
+        Args:
+            filter_state: Optional instance state filter (e.g., 'running', 'stopped').
+                         If None, returns all instances. Default: None.
         
         Returns:
             List of instance dictionaries with id, name, type, state, os, has_ssm
@@ -272,41 +294,114 @@ class AWSManager:
         Raises:
             ClientError: If AWS API call fails
         """
-        sess = self.session()
-        # Configure with timeout
-        config = Config(
-            retries={"max_attempts": AWS_MAX_RETRIES},
-            connect_timeout=AWS_CONNECT_TIMEOUT,
-            read_timeout=AWS_READ_TIMEOUT
-        )
-        ec2 = sess.client("ec2", config=config)
-        ssm = sess.client("ssm", config=config)
-
-        instances = []
-        paginator = ec2.get_paginator("describe_instances")
-        for page in paginator.paginate():
-            for r in page.get("Reservations", []):
-                for i in r.get("Instances", []):
-                    iid = i["InstanceId"]
-                    name = next((t["Value"] for t in i.get("Tags", []) if t["Key"] == "Name"), iid)
-                    platform = i.get("PlatformDetails", "Linux")
-                    state = i.get("State", {}).get("Name", "")
-                    instances.append({
-                        "id": iid,
-                        "name": name,
-                        "type": i.get("InstanceType", ""),
-                        "state": state,
-                        "os": "Windows" if "Windows" in platform else "Linux",
-                        "has_ssm": False,
-                    })
-
-        managed = set()
-        for page in ssm.get_paginator("describe_instance_information").paginate():
-            for info in page.get("InstanceInformationList", []):
-                managed.add(info["InstanceId"])
-        for inst in instances:
-            inst["has_ssm"] = inst["id"] in managed
-        return instances
+        # Check cache first (only if no filter is applied, as filter affects results)
+        cache_key = (self._profile or "default", self._region, filter_state)
+        if filter_state is None:
+            with self._instance_cache_lock:
+                # Check unfiltered cache
+                unfiltered_key = (self._profile or "default", self._region, None)
+                if unfiltered_key in self._instance_cache:
+                    cached_data, timestamp = self._instance_cache[unfiltered_key]
+                    if time.time() - timestamp < self._instance_cache_ttl:
+                        logger.debug(f"Returning cached instance list for {unfiltered_key}")
+                        return cached_data
+        
+        # Run EC2 and SSM calls in parallel
+        instances_result: List[Dict[str, Any]] = []
+        managed_result: set = set()
+        exceptions: List[tuple] = []
+        
+        def fetch_ec2():
+            """Fetch EC2 instances in a separate thread."""
+            try:
+                sess = self.session()
+                config = Config(
+                    retries={"max_attempts": AWS_MAX_RETRIES},
+                    connect_timeout=AWS_CONNECT_TIMEOUT,
+                    read_timeout=AWS_READ_TIMEOUT
+                )
+                ec2 = sess.client("ec2", config=config)
+                
+                instances = []
+                # Build paginator with optional filter
+                paginator_kwargs = {}
+                if filter_state:
+                    paginator_kwargs["Filters"] = [
+                        {"Name": "instance-state-name", "Values": [filter_state]}
+                    ]
+                
+                paginator = ec2.get_paginator("describe_instances")
+                for page in paginator.paginate(**paginator_kwargs):
+                    for r in page.get("Reservations", []):
+                        for i in r.get("Instances", []):
+                            iid = i["InstanceId"]
+                            name = next((t["Value"] for t in i.get("Tags", []) if t["Key"] == "Name"), iid)
+                            platform = i.get("PlatformDetails", "Linux")
+                            state = i.get("State", {}).get("Name", "")
+                            instances.append({
+                                "id": iid,
+                                "name": name,
+                                "type": i.get("InstanceType", ""),
+                                "state": state,
+                                "os": "Windows" if "Windows" in platform else "Linux",
+                                "has_ssm": False,
+                            })
+                instances_result.extend(instances)
+            except Exception as e:
+                exceptions.append(('ec2', e))
+                logger.warning(f"EC2 API call failed: {e}")
+        
+        def fetch_ssm():
+            """Fetch SSM managed instances in a separate thread."""
+            try:
+                sess = self.session()
+                config = Config(
+                    retries={"max_attempts": AWS_MAX_RETRIES},
+                    connect_timeout=AWS_CONNECT_TIMEOUT,
+                    read_timeout=AWS_READ_TIMEOUT
+                )
+                ssm = sess.client("ssm", config=config)
+                
+                managed = set()
+                for page in ssm.get_paginator("describe_instance_information").paginate():
+                    for info in page.get("InstanceInformationList", []):
+                        managed.add(info["InstanceId"])
+                managed_result.update(managed)
+            except Exception as e:
+                exceptions.append(('ssm', e))
+                logger.warning(f"SSM API call failed: {e}")
+        
+        # Start both threads
+        thread_ec2 = threading.Thread(target=fetch_ec2, daemon=True)
+        thread_ssm = threading.Thread(target=fetch_ssm, daemon=True)
+        thread_ec2.start()
+        thread_ssm.start()
+        
+        # Wait for both threads to complete
+        thread_ec2.join()
+        thread_ssm.join()
+        
+        # Handle errors - if both fail, raise exception
+        if len(exceptions) == 2:
+            ec2_error = next((e for source, e in exceptions if source == 'ec2'), None)
+            ssm_error = next((e for source, e in exceptions if source == 'ssm'), None)
+            raise RuntimeError(f"Both EC2 and SSM API calls failed. EC2: {ec2_error}, SSM: {ssm_error}")
+        
+        # If EC2 failed but SSM succeeded, we can't return instances
+        if any(source == 'ec2' for source, _ in exceptions):
+            raise RuntimeError(f"EC2 API call failed: {next((e for source, e in exceptions if source == 'ec2'), None)}")
+        
+        # Merge results - mark instances as SSM-managed if they're in the managed set
+        for inst in instances_result:
+            inst["has_ssm"] = inst["id"] in managed_result
+        
+        # Cache the results (only cache unfiltered results for reuse)
+        if filter_state is None:
+            with self._instance_cache_lock:
+                cache_key_unfiltered = (self._profile or "default", self._region, None)
+                self._instance_cache[cache_key_unfiltered] = (instances_result, time.time())
+        
+        return instances_result
 
     def instance_details(self, instance_id: str) -> Dict[str, Any]:
         """

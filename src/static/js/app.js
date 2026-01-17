@@ -654,7 +654,7 @@ async load_profiles_and_regions() {
     
     
     // Load instances
-    async load_instances() {
+    async load_instances(filterState = 'running') {
         if (!this.is_connected) return;
         
         const loadingState = document.getElementById('instancesLoadingState');
@@ -662,10 +662,25 @@ async load_profiles_and_regions() {
         
         try {
             // Show loading state
-            if (loadingState) loadingState.classList.remove('d-none');
+            if (loadingState) {
+                loadingState.classList.remove('d-none');
+                // Update loading message if filtering
+                const loadingText = loadingState.querySelector('p');
+                if (loadingText) {
+                    loadingText.textContent = filterState 
+                        ? `Loading ${filterState} instances...` 
+                        : 'Loading instances...';
+                }
+            }
             if (emptyState) emptyState.classList.add('d-none');
             
-            const response = await fetch('/api/instances');
+            // Build URL with optional filter
+            let url = '/api/instances';
+            if (filterState) {
+                url += `?filter_state=${encodeURIComponent(filterState)}`;
+            }
+            
+            const response = await fetch(url);
             if (!response.ok) throw new Error('Failed to load instances');
             
             this.instances = await response.json();
@@ -2177,6 +2192,16 @@ document.addEventListener('DOMContentLoaded', () => app.init());
 // --- Instance name filter by regex (smart detection) ---
 function setupInstanceFilter() {
     const filterInput = document.getElementById('instanceFilter');
+    const stateFilterSelect = document.getElementById('instanceStateFilter');
+    
+    // Setup state filter change handler
+    if (stateFilterSelect) {
+        stateFilterSelect.addEventListener('change', async function() {
+            const selectedState = this.value;
+            // Reload instances with state filter (empty string means all states)
+            await app.load_instances(selectedState || null);
+        });
+    }
     if (!filterInput) return;
 
     filterInput.addEventListener('input', app.debounce(() => {

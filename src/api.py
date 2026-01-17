@@ -123,7 +123,14 @@ def connect_to_aws():
 @api_bp.get("/instances")
 def get_instances():
     try:
-        return jsonify(aws_manager.list_instances())
+        # Get optional filter_state from query parameter
+        filter_state = request.args.get("filter_state", None)
+        # Validate filter_state if provided
+        if filter_state:
+            valid_states = ["pending", "running", "shutting-down", "terminated", "stopping", "stopped"]
+            if filter_state not in valid_states:
+                return create_error_response(f"Invalid filter_state. Must be one of: {', '.join(valid_states)}"), 400
+        return jsonify(aws_manager.list_instances(filter_state=filter_state))
     except Exception as e:
         return create_error_response(str(e)), 500
 

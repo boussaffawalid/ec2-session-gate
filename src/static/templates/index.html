@@ -149,17 +149,36 @@
                                 <span class="badge bg-primary" id="instanceCount" aria-live="polite" aria-atomic="true">0 instances</span>
                             </div>
                             <!-- Filter Box -->
-                            <div class="filter-box mt-2">
-                                <label for="instanceFilter" class="visually-hidden">Filter instances by name</label>
-                                <input
-                                    type="text"
-                                    id="instanceFilter"
-                                    class="form-control"
-                                    placeholder="🔍 Filter by name (regex supported)"
-                                    aria-label="Filter instances by name"
-                                    aria-describedby="filterHelp"
-                                />
-                                <span id="filterHelp" class="visually-hidden">Enter a regular expression to filter instances by name</span>
+                            <div class="filter-box mt-2 d-flex gap-2">
+                                <div class="flex-grow-1">
+                                    <label for="instanceFilter" class="visually-hidden">Filter instances by name</label>
+                                    <input
+                                        type="text"
+                                        id="instanceFilter"
+                                        class="form-control"
+                                        placeholder="🔍 Filter by name (regex supported)"
+                                        aria-label="Filter instances by name"
+                                        aria-describedby="filterHelp"
+                                    />
+                                    <span id="filterHelp" class="visually-hidden">Enter a regular expression to filter instances by name</span>
+                                </div>
+                                <div style="min-width: 150px;">
+                                    <label for="instanceStateFilter" class="visually-hidden">Filter instances by state</label>
+                                    <select
+                                        id="instanceStateFilter"
+                                        class="form-select"
+                                        aria-label="Filter instances by state"
+                                        title="Filter by instance state"
+                                    >
+                                        <option value="">All States</option>
+                                        <option value="running" selected>Running</option>
+                                        <option value="stopped">Stopped</option>
+                                        <option value="pending">Pending</option>
+                                        <option value="stopping">Stopping</option>
+                                        <option value="shutting-down">Shutting Down</option>
+                                        <option value="terminated">Terminated</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
                         <div class="card-body">
