@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "ec2-session-gate"
 # NOTE: Version should match src/version.py (single source of truth)
 # Update both files when changing version, or use: python -c "from src.version import __version__; print(__version__)"
-version = "1.0.2"
+version = "1.0.3"
 description = "Cross-platform AWS SSM tunnel/connection manager for EC2 instances"
 readme = "README.md"
 requires-python = ">=3.9"
