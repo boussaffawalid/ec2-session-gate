@@ -22,7 +22,8 @@ const app = {
         startPort: null,  // Will be loaded from backend (OS-specific defaults)
         endPort: null,    // Will be loaded from backend (OS-specific defaults)
         logLevel: 'INFO',
-        ssh_key_folder: null
+        ssh_key_folder: null,
+        ssh_options: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
     },
     // Initialize application
     async init() {
@@ -653,7 +654,7 @@ async load_profiles_and_regions() {
     
     
     // Load instances
-    async load_instances() {
+    async load_instances(filterState = 'running') {
         if (!this.is_connected) return;
         
         const loadingState = document.getElementById('instancesLoadingState');
@@ -661,10 +662,25 @@ async load_profiles_and_regions() {
         
         try {
             // Show loading state
-            if (loadingState) loadingState.classList.remove('d-none');
+            if (loadingState) {
+                loadingState.classList.remove('d-none');
+                // Update loading message if filtering
+                const loadingText = loadingState.querySelector('p');
+                if (loadingText) {
+                    loadingText.textContent = filterState 
+                        ? `Loading ${filterState} instances...` 
+                        : 'Loading instances...';
+                }
+            }
             if (emptyState) emptyState.classList.add('d-none');
             
-            const response = await fetch('/api/instances');
+            // Build URL with optional filter
+            let url = '/api/instances';
+            if (filterState) {
+                url += `?filter_state=${encodeURIComponent(filterState)}`;
+            }
+            
+            const response = await fetch(url);
             if (!response.ok) throw new Error('Failed to load instances');
             
             this.instances = await response.json();
@@ -1537,6 +1553,12 @@ async load_profiles_and_regions() {
             document.getElementById('endPort').value = prefs.port_range.end;
             document.getElementById('logLevel').value = prefs.logging.level;
             
+            // Load SSH options
+            const sshOptionsField = document.getElementById('sshOptions');
+            if (sshOptionsField) {
+                sshOptionsField.value = prefs.ssh_options || '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null';
+            }
+            
             // Load SSH key folders
             this.load_ssh_key_folders(prefs.ssh_key_folder || '');
             
@@ -1569,6 +1591,7 @@ async load_profiles_and_regions() {
             const startPort = parseInt(document.getElementById('startPort').value);
             const endPort = parseInt(document.getElementById('endPort').value);
             const logLevel = document.getElementById('logLevel').value;
+            const sshOptions = document.getElementById('sshOptions').value.trim() || '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null';
             
             // Get SSH key folders (one per line)
             const sshKeyFolders = this.get_ssh_key_folders();
@@ -1598,7 +1621,8 @@ const newPreferences = {
                 logging: {
                     level: logLevel,
                     format: "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
-                }
+                },
+                ssh_options: sshOptions
             };
             
             // Add SSH key folder if provided (newline-separated)
@@ -1614,8 +1638,14 @@ const newPreferences = {
             
             if (!response.ok) throw new Error('Failed to save preferences');
             
-            // Update local preferences
-            this.preferences = newPreferences;
+            // Update local preferences (preserve structure)
+            this.preferences.startPort = newPreferences.port_range.start;
+            this.preferences.endPort = newPreferences.port_range.end;
+            this.preferences.logLevel = newPreferences.logging.level;
+            this.preferences.ssh_options = newPreferences.ssh_options;
+            if (sshKeyFolder) {
+                this.preferences.ssh_key_folder = sshKeyFolder;
+            }
             
             // Hide modal and show success message
             if (this.modals.preferences) {
@@ -1640,23 +1670,28 @@ const newPreferences = {
             const response = await fetch('/api/preferences');
             if (!response.ok) throw new Error('Failed to load preferences');
             
-            this.preferences = await response.json();
+            const prefs = await response.json();
+            // Map backend structure to frontend preferences object
+            this.preferences.startPort = prefs.port_range?.start || null;
+            this.preferences.endPort = prefs.port_range?.end || null;
+            this.preferences.logLevel = prefs.logging?.level || 'INFO';
+            this.preferences.ssh_options = prefs.ssh_options || '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null';
+            this.preferences.ssh_key_folder = prefs.ssh_key_folder || null;
+            
+            // Also store full structure for compatibility
+            this.preferences.port_range = prefs.port_range;
+            this.preferences.logging = prefs.logging;
+            
             console.log('Loaded preferences:', this.preferences);
             
         } catch (error) {
             console.error('Error loading initial preferences:', error);
             // Use safe default values if loading fails (will be overridden by backend on next load)
             // These are generic safe ranges that work across platforms
-            this.preferences = {
-                port_range: {
-                    start: 40000,  // Safe fallback (below Windows ephemeral range)
-                    end: 40100
-                },
-                logging: {
-                    level: 'INFO',
-                    format: "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
-                }
-            };
+            this.preferences.startPort = 40000;
+            this.preferences.endPort = 40100;
+            this.preferences.logLevel = 'INFO';
+            this.preferences.ssh_options = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null';
         }
     };
 
@@ -1871,27 +1906,39 @@ const newPreferences = {
                 // For SSH connections, add SSH command with key path
                 if (info.type === 'ssh') {
                     let sshCommand = '';
-                    const sshOptions = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null';
+                    // Use SSH options from preferences (backend should already include them, but fallback to preferences)
+                    const sshOptions = this.preferences.ssh_options || '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null';
                     if (info.ssh_command_with_key) {
                         sshCommand = info.ssh_command_with_key;
                     } else if (info.command) {
                         // Fallback: construct command from available info
-                        // Ensure SSH options are included
+                        // Backend should already include SSH options, but ensure they're present
                         sshCommand = info.command;
-                        if (!sshCommand.includes('StrictHostKeyChecking')) {
+                        if (!sshCommand.includes('StrictHostKeyChecking') && !sshCommand.includes('-o')) {
                             // Add SSH options if not already present
                             sshCommand = sshCommand.replace(/^ssh /, `ssh ${sshOptions} `);
                         }
                         if (info.key_name && info.key_name !== 'N/A') {
                             // Try to construct command with key path
                             // This is a fallback - ideally backend should provide ssh_command_with_key
-                            // Use first folder if multiple are configured (comma-separated)
+                            // Use first folder if multiple are configured (newline or comma-separated)
                             const sshKeyFolders = this.preferences.ssh_key_folder;
-                            const firstFolder = sshKeyFolders ? sshKeyFolders.split(',')[0].trim() : null;
-                            const keyPath = firstFolder 
+                            let firstFolder = null;
+                            if (sshKeyFolders) {
+                                const folders = sshKeyFolders.split('\n').flatMap(f => f.split(','));
+                                firstFolder = folders.find(f => f.trim())?.trim();
+                            }
+                            
+                            let keyPath = firstFolder 
                                 ? `${firstFolder}/${info.key_name}`
                                 : `~/.ssh/${info.key_name}`;
-                            sshCommand = `ssh ${sshOptions} -i ${keyPath} -p ${info.port} ${info.user}@${info.ip}`;
+                            
+                            // Normalize path: convert backslashes to forward slashes (SSH on Windows supports forward slashes)
+                            keyPath = keyPath.replace(/\\/g, '/');
+                            
+                            // Quote the key path to handle spaces and special characters
+                            const quotedKeyPath = `"${keyPath}"`;
+                            sshCommand = `ssh ${sshOptions} -i ${quotedKeyPath} -p ${info.port} ${info.user}@${info.ip}`;
                         }
                     }
                     
@@ -2145,6 +2192,16 @@ document.addEventListener('DOMContentLoaded', () => app.init());
 // --- Instance name filter by regex (smart detection) ---
 function setupInstanceFilter() {
     const filterInput = document.getElementById('instanceFilter');
+    const stateFilterSelect = document.getElementById('instanceStateFilter');
+    
+    // Setup state filter change handler
+    if (stateFilterSelect) {
+        stateFilterSelect.addEventListener('change', async function() {
+            const selectedState = this.value;
+            // Reload instances with state filter (empty string means all states)
+            await app.load_instances(selectedState || null);
+        });
+    }
     if (!filterInput) return;
 
     filterInput.addEventListener('input', app.debounce(() => {

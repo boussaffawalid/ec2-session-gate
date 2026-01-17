@@ -123,7 +123,14 @@ def connect_to_aws():
 @api_bp.get("/instances")
 def get_instances():
     try:
-        return jsonify(aws_manager.list_instances())
+        # Get optional filter_state from query parameter
+        filter_state = request.args.get("filter_state", None)
+        # Validate filter_state if provided
+        if filter_state:
+            valid_states = ["pending", "running", "shutting-down", "terminated", "stopping", "stopped"]
+            if filter_state not in valid_states:
+                return create_error_response(f"Invalid filter_state. Must be one of: {', '.join(valid_states)}"), 400
+        return jsonify(aws_manager.list_instances(filter_state=filter_state))
     except Exception as e:
         return create_error_response(str(e)), 500
 
@@ -271,7 +278,7 @@ def set_preferences():
         # Reload preferences in aws_manager to use updated values
         aws_manager.preferences = Preferences.load()
         
-        logger.info(f"Saved preferences: port_range={p.port_range_start}-{p.port_range_end}, logging_level={p.logging_level}")
+        logger.info(f"Saved preferences: port_range={p.port_range_start}-{p.port_range_end}, logging_level={p.logging_level}, ssh_options={p.ssh_options}")
         return create_success_response(p.to_dict())
     except ValueError as e:
         logger.error(f"Invalid preferences data: {e}", exc_info=True)
