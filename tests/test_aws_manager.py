@@ -291,7 +291,8 @@ class TestAWSManager:
             
             assert info["type"] == "ssh"
             assert info["port"] == "60022"
-            assert "-i /home/user/.ssh/test-key.pem" in info["command"]
+            # Key path is quoted to handle spaces and special characters
+            assert '-i "/home/user/.ssh/test-key.pem"' in info["command"]
             assert "-o StrictHostKeyChecking=no" in info["command"]
             assert "-o UserKnownHostsFile=/dev/null" in info["command"]
     
