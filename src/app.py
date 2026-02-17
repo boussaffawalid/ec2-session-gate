@@ -1,10 +1,49 @@
 import os
+import socket
 import signal
 import logging
 import logging.config
 import yaml
 from flask import Flask, request
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+
+def _find_free_port() -> int:
+    """Find a random free port by letting OS assign one."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def get_server_port() -> int:
+    """Get server port from environment variable or use default.
+    If the configured port is in use, automatically finds a free port.
+    Uses existing _is_port_free() from src.aws_manager.
+    """
+    from src.aws_manager import _is_port_free
+
+    port_str = os.environ.get("EC2_SESSION_GATE_PORT") or os.environ.get("PORT")
+    preferred_port = 5000
+
+    if port_str:
+        try:
+            preferred_port = int(port_str)
+            if not (1 <= preferred_port <= 65535):
+                logger.warning("Port %s out of range, using default 5000", preferred_port)
+                preferred_port = 5000
+        except ValueError:
+            logger.warning("Invalid port value %r, using default 5000", port_str)
+            preferred_port = 5000
+
+    if _is_port_free(preferred_port):
+        logger.info("Using configured port %s", preferred_port)
+        return preferred_port
+    free_port = _find_free_port()
+    logger.warning("Port %s is in use, using free port %s instead", preferred_port, free_port)
+    return free_port
+
 
 def create_app():
     base_dir = Path(__file__).resolve().parent
@@ -105,4 +144,5 @@ def create_app():
 
 if __name__ == "__main__":
     app = create_app()
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    port = get_server_port()
+    app.run(host="127.0.0.1", port=port, debug=True)
