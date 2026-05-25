@@ -591,6 +591,7 @@ async load_profiles_and_regions() {
             
                 // Note: Profile and region are saved to backend preferences by the /api/connect endpoint
             
+                document.getElementById('connectionsFooter')?.classList.remove('d-none');
                 await this.load_instances();
                 this.show_success('Connected successfully');
             } else {
@@ -640,6 +641,7 @@ async load_profiles_and_regions() {
         this.elements.connectBtn.classList.replace('btn-danger', 'btn-success');
         this.elements.instancesList.innerHTML = '';
         this.elements.connectionsList.innerHTML = '';
+        document.getElementById('connectionsFooter')?.classList.add('d-none');
         this.update_counters();
         
         if (this.auto_refresh_interval) {
@@ -2194,8 +2196,176 @@ const newPreferences = {
    
     
 
+// Export / Import connections
+
+app.export_connections = async function() {
+    if (!this.is_connected) return;
+    const TYPE_MAP = { 'SSH': 'ssh', 'RDP': 'rdp', 'Custom Port': 'custom_port' };
+    const payload = {
+        version: '1.0',
+        exported_at: new Date().toISOString(),
+        profile: this.current_profile,
+        region: this.current_region,
+        connections: this.connections.map(c => {
+            const entry = {
+                instance_id: c.instanceId,
+                type: TYPE_MAP[c.type] ?? c.type.toLowerCase(),
+                remote_port: c.remotePort,
+            };
+            if (c.localPort) entry.local_port = c.localPort;
+            return entry;
+        })
+    };
+    const json = JSON.stringify(payload, null, 2);
+    const suggestedName = `ec2-connections-${new Date().toISOString().slice(0, 10)}.json`;
+
+    if (window.pywebview) {
+        // Desktop mode — use PyWebView native Save As dialog
+        try {
+            const result = await window.pywebview.api.save_file(suggestedName, json);
+            if (result && result.status === 'success') {
+                this.show_success('Connections exported successfully.');
+            }
+        } catch (err) {
+            this.show_error('Export failed: ' + err.message);
+        }
+    } else if (window.showSaveFilePicker) {
+        // Modern browsers — File System Access API
+        try {
+            const fileHandle = await window.showSaveFilePicker({
+                suggestedName,
+                types: [{ description: 'JSON file', accept: { 'application/json': ['.json'] } }]
+            });
+            const writable = await fileHandle.createWritable();
+            await writable.write(json);
+            await writable.close();
+        } catch (err) {
+            if (err.name !== 'AbortError') this.show_error('Export failed: ' + err.message);
+        }
+    } else {
+        // Fallback — auto-download to default downloads folder
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = suggestedName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 100);
+    }
+};
+
+app._validate_connections_file = function(data) {
+    if (!data || typeof data !== 'object') return 'Invalid JSON object.';
+    if (!Array.isArray(data.connections)) return 'Missing "connections" array.';
+    if (data.connections.length === 0) return 'No connections found in file.';
+    const VALID_TYPES = new Set(['ssh', 'rdp', 'custom_port']);
+    const ID_PATTERN = /^i-[0-9a-f]{8,17}$/i;
+    for (let i = 0; i < data.connections.length; i++) {
+        const c = data.connections[i];
+        const idx = `connections[${i}]`;
+        if (!c.instance_id || !ID_PATTERN.test(c.instance_id))
+            return `${idx}: invalid instance_id "${c.instance_id}".`;
+        if (!VALID_TYPES.has(c.type))
+            return `${idx}: type must be "ssh", "rdp", or "custom_port".`;
+        if (!Number.isInteger(c.remote_port) || c.remote_port < 1 || c.remote_port > 65535)
+            return `${idx}: remote_port must be an integer 1–65535.`;
+        if (c.local_port !== undefined &&
+                (!Number.isInteger(c.local_port) || c.local_port < 1 || c.local_port > 65535))
+            return `${idx}: local_port must be an integer 1–65535.`;
+    }
+    return null;
+};
+
+app.import_connections = async function(file) {
+    if (!this.is_connected) return;
+    let data;
+    try {
+        data = JSON.parse(await file.text());
+    } catch {
+        this.show_error('Import failed: file is not valid JSON.');
+        return;
+    }
+    const err = this._validate_connections_file(data);
+    if (err) { this.show_error(`Import validation failed: ${err}`); return; }
+
+    this.show_loading();
+    let apiFailCount = 0;
+    const importedIds = [];
+    const TYPE_LABEL = { ssh: 'SSH', rdp: 'RDP', custom_port: 'Custom Port' };
+    for (const c of data.connections) {
+        try {
+            let url, body;
+            if (c.type === 'ssh') {
+                url = `/api/ssh/${c.instance_id}`;
+                body = { profile: this.current_profile, region: this.current_region };
+            } else if (c.type === 'rdp') {
+                url = `/api/rdp/${c.instance_id}`;
+                body = { profile: this.current_profile, region: this.current_region };
+            } else {
+                url = `/api/custom-port/${c.instance_id}`;
+                body = { profile: this.current_profile, region: this.current_region,
+                    remote_port: c.remote_port, ...(c.local_port && { local_port: c.local_port }) };
+            }
+            const res = await fetch(url, { method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body) });
+            if (!res.ok) { apiFailCount++; continue; }
+            const result = await res.json();
+            if (result.status === 'success') {
+                this.add_connection({
+                    id: result.connection_id, instanceId: c.instance_id,
+                    type: TYPE_LABEL[c.type],
+                    localPort: result.local_port, remotePort: result.remote_port,
+                    command: result.command || '', connectionInfo: result.connection_info || null,
+                    timestamp: new Date(), status: 'active'
+                });
+                if (result.port_changed) {
+                    this.show_toast(`Port ${result.requested_port} was in use. Using ${result.local_port} instead.`, 'warning');
+                }
+                importedIds.push(result.connection_id);
+            } else { apiFailCount++; }
+        } catch { apiFailCount++; }
+    }
+
+    // Wait briefly then verify which processes are still alive
+    let deadCount = 0;
+    if (importedIds.length > 0) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        try {
+            const activeRes = await fetch('/api/active-connections');
+            if (activeRes.ok) {
+                const activeData = await activeRes.json();
+                const activeIds = new Set((Array.isArray(activeData) ? activeData : []).map(c => c.connection_id));
+                const deadIds = importedIds.filter(id => !activeIds.has(id));
+                deadCount = deadIds.length;
+                deadIds.forEach(id => { this.connections = this.connections.filter(c => c.id !== id); });
+                if (deadCount > 0) this.render_connections();
+            }
+        } catch {}
+    }
+
+    const survived = importedIds.length - deadCount;
+    const totalFailed = apiFailCount + deadCount;
+
+    this.hide_loading();
+    if (totalFailed === 0) {
+        this.show_success(`Imported ${survived} connection${survived !== 1 ? 's' : ''} successfully.`);
+    } else {
+        this.show_toast(`${survived} imported, ${totalFailed} failed.`, survived > 0 ? 'warning' : 'danger');
+    }
+};
+
 // Initialize app when document is ready
-document.addEventListener('DOMContentLoaded', () => app.init());
+document.addEventListener('DOMContentLoaded', () => {
+    app.init();
+    document.getElementById('importConnectionsInput')
+        ?.addEventListener('change', e => {
+            const file = e.target.files[0];
+            if (file) { app.import_connections(file); e.target.value = ''; }
+        });
+});
 
 
 // --- Instance name filter by regex (smart detection) ---

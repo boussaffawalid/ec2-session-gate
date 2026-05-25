@@ -220,6 +220,15 @@
                                 <!-- Active connections will be shown here -->
                             </div>
                         </div>
+                        <div id="connectionsFooter" class="card-footer bg-white d-flex gap-2 d-none">
+                            <button class="btn btn-sm btn-outline-secondary" onclick="app.export_connections()" title="Export connections to JSON">
+                                <i class="bi bi-download"></i> Export
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('importConnectionsInput').click()" title="Import connections from JSON">
+                                <i class="bi bi-upload"></i> Import
+                            </button>
+                            <input type="file" id="importConnectionsInput" accept=".json" class="d-none">
+                        </div>
                     </div>
                 </aside>
             </div>
