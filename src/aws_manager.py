@@ -345,6 +345,8 @@ class AWSManager:
                                 "state": state,
                                 "os": "Windows" if "Windows" in platform else "Linux",
                                 "has_ssm": False,
+                                "private_ip": i.get("PrivateIpAddress", ""),
+                                "public_ip": i.get("PublicIpAddress", ""),
                             })
                 instances_result.extend(instances)
             except Exception as e:

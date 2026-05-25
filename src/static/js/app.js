@@ -2224,9 +2224,11 @@ function setupInstanceFilter() {
         const filtered = !regex
             ? app.instances
             : app.instances.filter(inst => {
-                // Sanitize instance name before testing
                 const safeName = app.sanitize_string(inst.name || '');
-                return regex.test(safeName);
+                const safeId = app.sanitize_string(inst.id || '');
+                const safePrivateIp = app.sanitize_string(inst.private_ip || '');
+                const safePublicIp = app.sanitize_string(inst.public_ip || '');
+                return regex.test(safeName) || regex.test(safeId) || regex.test(safePrivateIp) || regex.test(safePublicIp);
             });
 
         // Re-render only matches
