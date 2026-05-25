@@ -902,10 +902,13 @@ async load_profiles_and_regions() {
                     timestamp: new Date(),
                     status: 'active'
                 });
-                const msg = result.connection_info 
+                const msg = result.connection_info
                     ? `SSH port forwarding active! ${result.connection_info.instruction}`
                     : `SSH port forward started on local port ${result.local_port}`;
                 this.show_success(msg);
+                if (result.port_changed) {
+                    this.show_toast(`Port ${result.requested_port} was already in use. Using port ${result.local_port} instead.`, 'warning');
+                }
             } else {
                 throw new Error(result.error || 'Failed to start SSH session');
             }
@@ -944,10 +947,13 @@ async load_profiles_and_regions() {
                     timestamp: new Date(),
                     status: 'active'
                 });
-                const msg = result.connection_info 
+                const msg = result.connection_info
                     ? `RDP port forwarding active! ${result.connection_info.instruction}`
                     : `RDP port forward started on local port ${result.local_port}`;
                 this.show_success(msg);
+                if (result.port_changed) {
+                    this.show_toast(`Port ${result.requested_port} was already in use. Using port ${result.local_port} instead.`, 'warning');
+                }
             } else {
                 throw new Error(result.error || 'Failed to start RDP session');
             }
@@ -1806,6 +1812,9 @@ const newPreferences = {
                     : `Port forwarding started (Local: ${result.local_port}, Remote: ${result.remote_port})`;
                 
                 this.show_success(successMessage);
+                if (result.port_changed) {
+                    this.show_toast(`Port ${result.requested_port} was already in use. Using port ${result.local_port} instead.`, 'warning');
+                }
                 this.modals.customPort.hide();
                 // Reset form
                 if (form) form.reset();

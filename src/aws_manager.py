@@ -688,6 +688,7 @@ class AWSManager:
         end = getattr(self.preferences, "port_range_end", 60100)
         
         # Determine local port
+        port_changed = False
         if preferred_local_port is not None:
             # If a preferred local port is provided, try to use it
             if _is_port_free(preferred_local_port):
@@ -696,6 +697,7 @@ class AWSManager:
             else:
                 logger.info(f"Preferred local port {preferred_local_port} not available, using port from range for {connection_type} connection")
                 local_port = _in_range_free_port(start, end)
+                port_changed = True
         elif connection_type in ("ssh", "rdp", "custom_port"):
             # For SSH, RDP, and custom ports, always use a safe port from the configured range
             # This avoids conflicts with system ports and ensures consistent behavior
@@ -784,12 +786,15 @@ class AWSManager:
         
         logger.info(f"Started {connection_type} port forwarding {cid} on local port {local_port}")
         result = {
-            "connection_id": cid, 
+            "connection_id": cid,
             "local_port": local_port,
             "remote_port": remote_port,
             "command": cmd_str,
             "connection_info": connection_info
         }
+        if port_changed:
+            result["port_changed"] = True
+            result["requested_port"] = preferred_local_port
         # Include remote_host if present
         if remote_host:
             result["remote_host"] = remote_host
